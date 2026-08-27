@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Finance Repayment Tracker</title>
+<style>
+:root{font-family:Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f5f7fb}
+*{box-sizing:border-box}body{margin:0}.app{max-width:1180px;margin:auto;padding:24px}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:22px}
+h1{margin:0;font-size:28px}.sub{color:#687386;margin-top:5px}
+button{border:0;border-radius:10px;padding:11px 16px;font-weight:700;cursor:pointer;background:#172033;color:white}
+button.secondary{background:#e9edf5;color:#172033}.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px}
+.card,.panel{background:white;border:1px solid #e4e8f0;border-radius:16px;padding:18px;box-shadow:0 3px 14px #1522380a}
+.card small{color:#687386}.num{font-size:25px;font-weight:800;margin-top:7px}
+.panels{display:grid;grid-template-columns:390px 1fr;gap:18px}.panel h2{font-size:18px;margin:0 0 16px}
+label{display:block;font-size:13px;font-weight:700;margin:12px 0 6px}input,select{width:100%;padding:11px;border:1px solid #d9dee8;border-radius:9px;font-size:14px;background:white}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}.actions{display:flex;gap:8px;margin-top:16px}
+table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:12px 9px;border-bottom:1px solid #edf0f5}th{color:#687386;font-size:12px}
+.badge{padding:5px 8px;border-radius:20px;font-size:11px;font-weight:800}.paid{background:#e4f7eb;color:#18733d}.pending{background:#fff4d7;color:#8a6500}.overdue{background:#ffe5e5;color:#a12a2a}
+.toolbar{display:flex;gap:8px;margin-bottom:12px}.toolbar input{max-width:240px}.empty{text-align:center;color:#7a8494;padding:30px}
+.smallbtn{padding:7px 10px;font-size:12px}.total{font-weight:800}
+@media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}.panels{grid-template-columns:1fr}}@media(max-width:520px){.app{padding:14px}.grid{grid-template-columns:1fr 1fr}.row{grid-template-columns:1fr}header{align-items:flex-start;gap:10px}}
+.hidden{display:none!important}
+</style>
+</head>
+<body>
+<div id="authScreenWrap">
+<div id="authScreen" class="card" style="max-width:430px;margin:70px auto;">
+<h1>Finance Tracker</h1>
+<div class="sub">Login to sync your records across phone and laptop.</div>
+<form id="authForm">
+<label>Email</label><input id="authEmail" type="email" required placeholder="you@example.com">
+<label>Password</label><input id="authPassword" type="password" required minlength="6" placeholder="Minimum 6 characters">
+<div class="actions"><button type="submit">Login</button><button type="button" class="secondary" id="signupBtn">Create account</button></div>
+<div id="authMsg" class="sub" style="margin-top:10px"></div>
+</form>
+</div>
+</div>
+<div id="appWrap" class="hidden"><div class="app">
+<header><div><h1>Finance Repayment Tracker</h1><div class="sub">Cloud synced across your devices.</div></div>
+<div class="actions"><button class="secondary" id="logoutBtn">Logout</button><button onclick="exportData()">Export CSV</button></div></header>
+
+<section class="grid">
+<div class="card"><small>Total lent</small><div class="num" id="totalLent">₹0</div></div>
+<div class="card"><small>Total received</small><div class="num" id="totalReceived">₹0</div></div>
+<div class="card"><small>Outstanding</small><div class="num" id="outstanding">₹0</div></div>
+<div class="card" id="overdueCard" style="cursor:pointer" title="Show overdue payments"><small>Overdue payments</small><div class="num" id="overdue">0</div><div class="sub">Click to view pending list</div></div>
+</section>
+
+<div class="panels">
+<section class="panel">
+<h2>Add New Finance</h2>
+<form id="financeForm">
+<label>Person name</label><input id="name" required placeholder="e.g. Ravi">
+<label>Phone number</label><input id="phone" placeholder="Optional">
+<div class="row">
+<div><label>Amount given (₹)</label><input id="amount" type="number" min="1" required placeholder="20000"></div>
+<div><label>Payment amount (₹)</label><input id="payment" type="number" min="1" required placeholder="4000"></div>
+</div>
+<div class="row">
+<div><label>Start date</label><input id="start" type="date" required></div>
+<div><label>Frequency</label><select id="frequency"><option value="monthly">Monthly</option><option value="weekly">Weekly</option><option value="daily">Daily</option></select></div>
+</div>
+<label>Finance type</label>
+<select id="financeType">
+  <option value="installment">Installment / Principal</option>
+  <option value="interest_only">Interest Only</option>
+  <option value="daily_interest">Daily Interest</option>
+</select>
+<div id="installmentFields">
+<label>Number of payments</label><input id="count" type="number" min="1" required placeholder="5">
+</div>
+<div id="interestFields" style="display:none">
+<label>Interest rate for this person (%)</label><input id="interestRate" type="number" min="0" step="0.01" placeholder="5">
+<p class="sub">This rate belongs only to this person. You can use 5% for one person, 6% for another, etc.</p>
+</div>
+<div class="actions"><button type="submit">Create Schedule</button><button type="button" class="secondary" id="clearBtn">Clear</button></div>
+<p id="hint" class="sub">First payment starts next week/month after the start date.</p>
+</form>
+</section>
+
+<section class="panel">
+<h2>Finances</h2>
+<div class="toolbar"><input id="search" placeholder="Search person..." oninput="render()"><button class="secondary" onclick="showAll()">All</button></div>
+<div id="list"></div>
+</section>
+</div>
+</div>
+
+
+<script>
+const SUPABASE_URL="https://gsaedqngknunvilwylko.supabase.co";
+const SUPABASE_PUBLISHABLE_KEY="sb_publishable_YFUwnnCsYnA4pkH5Dl366w_uinP37SM";
+const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+let user=null,finances=[],payments=[];
+
+const money=n=>"₹"+Number(n||0).toLocaleString("en-IN",{maximumFractionDigits:2});
+const pad=n=>String(n).padStart(2,"0");
+const today=()=>{const d=new Date();return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`};
+function parts(x){return x.split("-").map(Number)}
+function isoAddDays(s,n){const [y,m,d]=parts(s),x=new Date(Date.UTC(y,m-1,d+n));return `${x.getUTCFullYear()}-${pad(x.getUTCMonth()+1)}-${pad(x.getUTCDate())}`}
+function isoAddMonth(s){const [y,m,d]=parts(s),x=new Date(Date.UTC(y,m,1)),last=new Date(Date.UTC(x.getUTCFullYear(),x.getUTCMonth()+1,0)).getUTCDate();x.setUTCDate(Math.min(d,last));return `${x.getUTCFullYear()}-${pad(x.getUTCMonth()+1)}-${pad(x.getUTCDate())}`}
+function fmt(s){const [y,m,d]=parts(s);return new Date(Date.UTC(y,m-1,d)).toLocaleDateString("en-IN",{day:"2-digit",month:"short",year:"numeric",timeZone:"UTC"})}
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]))}
+function msg(id,t){document.getElementById(id).textContent=t||""}
+
+function toggleFinanceType(){
+ const t=document.getElementById("financeType").value;
+ const daily=t==="daily_interest", inst=t==="installment";
+ document.getElementById("installmentFields").style.display=inst?"block":"none";
+ document.getElementById("paymentField").style.display=inst?"block":"none";
+ document.getElementById("interestFields").style.display=inst?"none":"block";
+ document.getElementById("count").required=inst;
+ document.getElementById("payment").required=inst;
+ if(daily) document.getElementById("frequency").value="daily";
+ else if(document.getElementById("frequency").value==="daily") document.getElementById("frequency").value="monthly";
+ document.getElementById("interestRateLabel").textContent=daily?"Daily interest rate (%)":"Interest rate (%)";
+}
+function scheduleDates(start,freq,n){
+ let d=start,a=[];
+ for(let i=0;i<n;i++){d=freq==="daily"?isoAddDays(d,1):freq==="weekly"?isoAddDays(d,7):isoAddMonth(d);a.push(d)}
+ return a;
+}
+async function load(){
+ const [fr,pr]=await Promise.all([
+  db.from("finances").select("*").order("created_at",{ascending:false}),
+  db.from("payments").select("*").order("due_date",{ascending:true})
+ ]);
+ if(fr.error) throw fr.error;if(pr.error) throw pr.error;
+ finances=fr.data||[];payments=pr.data||[];render();
+}
+function fp(f){return payments.filter(p=>p.finance_id===f.id)}
+function interestAmount(f){return Number(f.amount)*Number(f.interest_rate)/100}
+function render(){
+ const t=today(),q=(document.getElementById("search").value||"").toLowerCase();
+ let lent=0,received=0,late=0;
+ finances.forEach(f=>{
+  lent+=Number(f.amount);
+  fp(f).forEach(p=>{if(p.paid)received+=Number(p.amount);else if(p.due_date<t&&!f.principal_returned)late++});
+  if(f.principal_returned)received+=Number(f.amount);
+ });
+ totalLent.textContent=money(lent);totalReceived.textContent=money(received);outstanding.textContent=money(Math.max(0,lent-received));overdue.textContent=late;
+ const arr=finances.filter(f=>(f.person_name||"").toLowerCase().includes(q));
+ list.innerHTML=arr.length?arr.map(f=>{
+  const ps=fp(f),next=ps.find(p=>!p.paid),paid=ps.filter(p=>p.paid).length;
+  const interest=f.finance_type!=="installment";
+  return `<div class="card" style="margin-bottom:12px">
+   <div style="display:flex;justify-content:space-between;gap:10px"><div><b>${esc(f.person_name)}</b><div class="sub">${esc(f.phone||"")} · ${interest?(f.finance_type==="daily_interest"?"Daily Interest":"Interest Only")+" · "+f.interest_rate+"%":"Installment"}</div></div><button class="secondary smallbtn" data-view="${f.id}">View</button></div>
+   <div style="display:flex;gap:24px;margin-top:14px;flex-wrap:wrap"><div><small>Given</small><div class="total">${money(f.amount)}</div></div>
+   <div><small>${interest?"Interest paid":"Paid"}</small><div class="total">${interest?money(ps.filter(p=>p.paid).reduce((a,p)=>a+Number(p.amount),0):paid+"/"+ps.length}</div></div>
+   <div><small>${interest?"Interest/period":"Installment"}</small><div class="total">${money(interest?interestAmount(f):f.installment_amount)}</div></div></div>
+   <div class="sub" style="margin-top:12px">${f.principal_returned?"Principal returned ✓":next?`Next: ${fmt(next.due_date)} · ${money(next.amount)}`:"Completed ✓"}</div>
+  </div>`;
+ }).join(""):'<div class="empty">No finance records yet.</div>';
+ document.querySelectorAll("[data-view]").forEach(b=>b.onclick=()=>view(b.dataset.view));
+}
+function view(id){
+ const f=finances.find(x=>x.id===id);if(!f)return;
+ const ps=fp(f),t=today(),type=f.finance_type==="installment"?"Installment":f.finance_type==="daily_interest"?"Daily Interest":"Interest Only";
+ const rows=ps.map((p,i)=>`<tr><td>${i+1}</td><td>${fmt(p.due_date)}</td><td>${money(p.amount)}</td><td><span class="badge ${p.paid?"paid":(!f.principal_returned&&p.due_date<t?"overdue":"pending")}">${p.paid?"PAID":(!f.principal_returned&&p.due_date<t?"OVERDUE":"PENDING")}</span></td><td>${p.paid||f.principal_returned?"":`<button class="smallbtn" data-paid="${p.id}">Mark paid</button>`}</td></tr>`).join("");
+ list.innerHTML=`<div class="card"><button class="secondary smallbtn" id="backBtn">← Back</button><h3>${esc(f.person_name)}</h3>
+ <div class="sub">${esc(f.phone||"")} · ${type} · Started ${fmt(f.start_date)}</div>
+ <div class="sub" style="margin-top:8px">${f.finance_type==="installment"?`Amount: <b>${money(f.amount)}</b> · Installment: <b>${money(f.installment_amount)}</b>`:`Principal: <b>${money(f.amount)}</b> · Rate: <b>${f.interest_rate}% per ${f.finance_type==="daily_interest"?"day":f.frequency}</b> · Interest: <b>${money(interestAmount(f))}</b>`}</div>
+ <div style="overflow:auto;margin-top:14px"><table><thead><tr><th>#</th><th>Due date</th><th>Amount</th><th>Status</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+ <div class="actions">${f.finance_type!=="installment"&&!f.principal_returned?`<button id="principalBtn">Mark ${money(f.amount)} Principal Returned</button>`:""}<button class="secondary" id="deleteBtn">Delete finance</button></div></div>`;
+ backBtn.onclick=render;deleteBtn.onclick=()=>delFinance(id);
+ document.querySelectorAll("[data-paid]").forEach(b=>b.onclick=()=>paid(b.dataset.paid,id));
+ const pb=document.getElementById("principalBtn");if(pb)pb.onclick=()=>returnPrincipal(id);
+}
+async function paid(pid,fid){
+ const {error}=await db.from("payments").update({paid:true,paid_date:today()}).eq("id",pid);
+ if(error){alert(error.message);return}await load();view(fid);
+}
+async function returnPrincipal(id){
+ if(!confirm("Mark the principal as returned? Future interest will stop."))return;
+ const {error}=await db.from("finances").update({principal_returned:true,principal_returned_date:today(),updated_at:new Date().toISOString()}).eq("id",id);
+ if(error){alert(error.message);return}await load();view(id);
+}
+async function delFinance(id){
+ if(!confirm("Delete this finance and its payment schedule?"))return;
+ const {error}=await db.from("finances").delete().eq("id",id);if(error){alert(error.message);return}await load();
+}
+async function create(e){
+ e.preventDefault();msg("formMessage","");
+ const nameV=name.value.trim(),phoneV=phone.value.trim(),amountV=Number(amount.value),startV=start.value,typeV=financeType.value,freqV=frequency.value;
+ const paymentV=Number(payment.value),countV=Number(count.value),rateV=Number(interestRate.value);
+ if(!nameV||amountV<=0||!startV){msg("formMessage","Enter name, amount and start date.");return}
+ if(typeV==="installment"&&(paymentV<=0||countV<=0)){msg("formMessage","Enter installment amount and number of payments.");return}
+ if(typeV!=="installment"&&rateV<=0){msg("formMessage","Enter this person's interest rate.");return}
+ if(typeV==="daily_interest"&&freqV!=="daily"){msg("formMessage","Daily Interest uses Daily frequency.");return}
+ const n=typeV==="installment"?countV:(typeV==="daily_interest"?3650:(freqV==="weekly"?520:120));
+ const per=typeV==="installment"?paymentV:amountV*rateV/100;
+ const row={user_id:user.id,person_name:nameV,phone:phoneV,amount:amountV,finance_type:typeV,frequency:freqV,interest_rate:typeV==="installment"?null:rateV,installment_amount:typeV==="installment"?paymentV:null,number_of_payments:typeV==="installment"?countV:null,start_date:startV,principal_returned:false,principal_returned_date:null};
+ const fr=await db.from("finances").insert(row).select().single();if(fr.error){msg("formMessage",fr.error.message);return}
+ const dates=scheduleDates(startV,freqV,n), rows=dates.map(d=>({user_id:user.id,finance_id:fr.data.id,due_date:d,amount:per,payment_type:typeV==="installment"?"installment":"interest",paid:false}));
+ for(let i=0;i<rows.length;i+=200){const r=await db.from("payments").insert(rows.slice(i,i+200));if(r.error){await db.from("finances").delete().eq("id",fr.data.id);msg("formMessage","Schedule failed: "+r.error.message);return}}
+ e.target.reset();start.value=today();toggleFinanceType();msg("formMessage","Schedule created successfully.");await load();
+}
+async function overdueList(){
+ const t=today(),items=[];
+ finances.forEach(f=>fp(f).forEach(p=>{if(!p.paid&&p.due_date<t&&!f.principal_returned)items.push({f,p})}));
+ list.innerHTML=`<div class="card"><button class="secondary smallbtn" id="overBack">← Back</button><h3>Overdue / Pending List</h3>${items.length?`<div style="overflow:auto;margin-top:14px"><table><thead><tr><th>Person</th><th>Due date</th><th>Amount</th><th>Type</th><th></th></tr></thead><tbody>${items.map(x=>`<tr><td><b>${esc(x.f.person_name)}</b><div class="sub">${esc(x.f.phone||"")}</div></td><td>${fmt(x.p.due_date)}</td><td>${money(x.p.amount)}</td><td>${x.f.finance_type==="daily_interest"?"Daily Interest":x.f.finance_type==="interest_only"?"Interest Only":"Installment"}</td><td><button class="smallbtn" data-opaid="${x.p.id}">Mark paid</button></td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">No overdue payments.</div>'}</div>`;
+ overBack.onclick=render;document.querySelectorAll("[data-opaid]").forEach(b=>b.onclick=async()=>{await paid(b.dataset.opaid);overdueList()});
+}
+async function startApp(){
+ const {data:{session}}=await db.auth.getSession();
+ if(session){user=session.user;authScreenWrap.style.display="none";appWrap.classList.remove("hidden");await load()}
+}
+function userEmailText(){document.getElementById("userEmail")?.remove()}
+authForm.onsubmit=async e=>{e.preventDefault();msg("authMsg","");const r=await db.auth.signInWithPassword({email:authEmail.value.trim(),password:authPassword.value});if(r.error){msg("authMsg",r.error.message);return}user=r.data.user;authScreenWrap.style.display="none";appWrap.classList.remove("hidden");await load()};
+signupBtn.onclick=async()=>{const r=await db.auth.signUp({email:authEmail.value.trim(),password:authPassword.value});if(r.error){msg("authMsg",r.error.message);return}msg("authMsg",r.data.session?"Account created.":"Account created. Check your email, then log in.")};
+logoutBtn.onclick=async()=>{await db.auth.signOut();location.reload()};
+financeForm.onsubmit=create;financeType.onchange=toggleFinanceType;frequency.onchange=toggleFinanceType;clearBtn.onclick=()=>{financeForm.reset();start.value=today();toggleFinanceType();msg("formMessage","")};search.oninput=render;allBtn.onclick=()=>{search.value="";render()};overdueCard.onclick=overdueList;
+start.value=today();toggleFinanceType();startApp().catch(e=>msg("authMsg",e.message));
+</script>
+</body>
+</html>
