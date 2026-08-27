@@ -209,9 +209,56 @@ async function startApp(){
  if(session){user=session.user;authScreenWrap.style.display="none";appWrap.classList.remove("hidden");await load()}
 }
 function userEmailText(){document.getElementById("userEmail")?.remove()}
-authForm.onsubmit=async e=>{e.preventDefault();msg("authMsg","");const r=await db.auth.signInWithPassword({email:authEmail.value.trim(),password:authPassword.value});if(r.error){msg("authMsg",r.error.message);return}user=r.data.user;authScreenWrap.style.display="none";appWrap.classList.remove("hidden");await load()};
-signupBtn.onclick=async()=>{const r=await db.auth.signUp({email:authEmail.value.trim(),password:authPassword.value});if(r.error){msg("authMsg",r.error.message);return}msg("authMsg",r.data.session?"Account created.":"Account created. Check your email, then log in.")};
-logoutBtn.onclick=async()=>{await db.auth.signOut();location.reload()};
+const authFormEl=document.getElementById("authForm");
+const authEmailEl=document.getElementById("authEmail");
+const authPasswordEl=document.getElementById("authPassword");
+const authMsgEl=document.getElementById("authMsg");
+const signupBtnEl=document.getElementById("signupBtn");
+const authScreenWrapEl=document.getElementById("authScreenWrap");
+const appWrapEl=document.getElementById("appWrap");
+const logoutBtnEl=document.getElementById("logoutBtn");
+
+authFormEl.addEventListener("submit",async e=>{
+ e.preventDefault();
+ msg("authMsg","");
+ const email=authEmailEl.value.trim();
+ const password=authPasswordEl.value;
+ if(!email||password.length<6){msg("authMsg","Enter a valid email and a password of at least 6 characters.");return}
+ const r=await db.auth.signInWithPassword({email,password});
+ if(r.error){msg("authMsg",r.error.message);return}
+ user=r.data.user;
+ authScreenWrapEl.style.display="none";
+ appWrapEl.classList.remove("hidden");
+ try{await load()}catch(err){msg("authMsg","Login succeeded, but data could not load: "+err.message)}
+});
+
+signupBtnEl.addEventListener("click",async()=>{
+ msg("authMsg","");
+ const email=authEmailEl.value.trim();
+ const password=authPasswordEl.value;
+ if(!email||password.length<6){msg("authMsg","Enter a valid email and a password of at least 6 characters.");return}
+ signupBtnEl.disabled=true;
+ signupBtnEl.textContent="Creating...";
+ try{
+   const r=await db.auth.signUp({
+     email,
+     password,
+     options:{emailRedirectTo:window.location.href}
+   });
+   if(r.error){msg("authMsg",r.error.message);return}
+   if(r.data.session){
+     user=r.data.user;
+     authScreenWrapEl.style.display="none";
+     appWrapEl.classList.remove("hidden");
+     await load();
+   }else{
+     msg("authMsg","Account created. If email confirmation is enabled, check your email and confirm it before logging in.");
+   }
+ }catch(err){msg("authMsg","Could not create account: "+err.message)}
+ finally{signupBtnEl.disabled=false;signupBtnEl.textContent="Create account"}
+});
+
+logoutBtnEl.addEventListener("click",async()=>{await db.auth.signOut();location.reload()});
 financeForm.onsubmit=create;financeType.onchange=toggleFinanceType;frequency.onchange=toggleFinanceType;clearBtn.onclick=()=>{financeForm.reset();start.value=today();toggleFinanceType();msg("formMessage","")};search.oninput=render;allBtn.onclick=()=>{search.value="";render()};overdueCard.onclick=overdueList;
 start.value=today();toggleFinanceType();startApp().catch(e=>msg("authMsg",e.message));
 </script>
