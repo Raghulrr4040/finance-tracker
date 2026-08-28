@@ -23,7 +23,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 .smallbtn{padding:7px 10px;font-size:12px}.total{font-weight:800}.message{margin-top:10px;padding:10px;border-radius:9px;background:#eef6ff;color:#174a7a}
 @media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}.panels{grid-template-columns:1fr}}@media(max-width:520px){.app{padding:14px}.grid{grid-template-columns:1fr 1fr}.row{grid-template-columns:1fr}header{align-items:flex-start;gap:10px}}
 .hidden{display:none!important}
-@media print{body>*{display:none!important}#reportPanel{display:block!important;border:0!important;box-shadow:none!important;margin:0!important}#reportPanel .actions,#reportPanel .grid{display:none!important}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:7px;text-align:left}}</style>
+@media print{.report-section{break-inside:avoid;margin-bottom:25px}body>*{display:none!important}#reportPanel{display:block!important;border:0!important;box-shadow:none!important;margin:0!important}#reportPanel .actions,#reportPanel .grid{display:none!important}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:7px;text-align:left}}</style>
 </head>
 <body>
 <div id="authScreenWrap">
@@ -94,8 +94,25 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 <div class="toolbar"><input id="search" placeholder="Search person..." ><button class="secondary" id="allBtn">All</button></div>
 <div id="reportPanel" class="card hidden" style="margin-bottom:14px">
 <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
-<div><h3 style="margin:0">Due Reports</h3><div class="sub">Separate customers by today's due date, weekly day, monthly date, or address.</div></div>
-<div class="actions"><button class="secondary smallbtn" id="closeReports">Close</button><button class="smallbtn" id="printReport">Print report</button></div></div>
+<div><h3 style="margin:0">Collection Reports</h3><div class="sub">Monthly, weekly and daily collections are shown separately. Select a date to see exactly who is due.</div></div>
+<div class="actions"><button class="secondary smallbtn" id="closeReports">Close</button><button class="smallbtn" id="printReport">Print selected report</button></div>
+</div>
+<div class="grid" style="margin-top:12px">
+<div><label>Exact report date</label><input id="reportDate" type="date"></div>
+<div><label>View</label><select id="reportType">
+<option value="all">All three reports</option>
+<option value="daily">Daily finance</option>
+<option value="weekly">Weekly finance</option>
+<option value="monthly">Monthly finance</option>
+</select></div>
+<div><label>Weekly day</label><select id="reportDay"><option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option><option value="3">Thursday</option><option value="4">Friday</option><option value="5">Saturday</option><option value="6">Sunday</option></select></div>
+<div><label>Monthly date</label><input id="reportMonthDay" type="number" min="1" max="31" placeholder="5"></div>
+</div>
+<div id="reportSummary" class="sub" style="margin-top:12px"></div>
+<div id="dailyReport" style="margin-top:14px"></div>
+<div id="weeklyReport" style="margin-top:14px"></div>
+<div id="monthlyReport" style="margin-top:14px"></div>
+</div></div>
 <div class="grid" style="margin-top:12px">
 <div><label>Report date</label><input id="reportDate" type="date"></div>
 <div><label>Report type</label><select id="reportType"><option value="today">Today's Due</option><option value="weekly_day">Weekly Day</option><option value="monthly_date">Monthly Date</option><option value="address">Address</option></select></div>
@@ -314,26 +331,59 @@ function exportData(){
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='finance-tracker.csv';a.click();URL.revokeObjectURL(a.href);
 }
 
-function localDayIndex(dateStr){const d=new Date(dateStr+"T00:00:00");return (d.getDay()+6)%7}
-function dueForReport(f,p,kind,dateStr){
- if(p.paid||f.principal_returned)return false;
- if(kind==="today")return p.due_date===dateStr;
- if(kind==="weekly_day")return f.frequency==="weekly"&&localDayIndex(p.due_date)===Number(reportDay.value);
- if(kind==="monthly_date")return f.frequency==="monthly"&&Number(p.due_date.slice(8,10))===Number(reportMonthDay.value);
- if(kind==="address")return (f.borrower_address||"").toLowerCase().includes((reportAddress.value||"").toLowerCase());
- return false;
+
+function reportDueItems(financeType, dateStr, dayIndex, monthDay){
+ const found=[];
+ finances.forEach(f=>{
+   if(f.principal_returned)return;
+   if(financeType==="daily"){
+     if(f.finance_type==="daily_interest"){
+       fp(f).forEach(p=>{if(!p.paid && p.due_date===dateStr)found.push({f,p})});
+     }
+   } else if(financeType==="weekly"){
+     if(f.frequency==="weekly" && f.finance_type!=="daily_interest"){
+       fp(f).forEach(p=>{if(!p.paid && localDayIndex(p.due_date)===dayIndex)found.push({f,p})});
+     }
+   } else if(financeType==="monthly"){
+     if(f.frequency==="monthly"){
+       fp(f).forEach(p=>{if(!p.paid && Number(p.due_date.slice(8,10))===monthDay)found.push({f,p})});
+     }
+   }
+ });
+ return found.sort((a,b)=>a.p.due_date.localeCompare(b.p.due_date)||a.f.person_name.localeCompare(b.f.person_name));
+}
+function reportTable(title, items){
+ const total=items.reduce((a,x)=>a+Number(x.p.amount),0);
+ if(!items.length)return `<div class="report-section"><h3>${title}</h3><div class="empty">No pending customers.</div></div>`;
+ return `<div class="report-section"><h3>${title}</h3>
+ <div class="sub">${items.length} payment${items.length===1?"":"s"} · Total ${money(total)}</div>
+ <table><thead><tr><th>#</th><th>Customer</th><th>Phone</th><th>Borrower Address</th><th>Surety</th><th>Money Borrowed</th><th>Collection Starts</th><th>Due Date</th><th>Amount</th></tr></thead>
+ <tbody>${items.map((x,i)=>`<tr><td>${i+1}</td><td><b>${esc(x.f.person_name)}</b></td><td>${esc(x.f.phone||"")}</td><td>${esc(x.f.borrower_address||"")}</td><td>${esc(x.f.surety_name||"")} ${esc(x.f.surety_phone||"")}</td><td>${fmt(x.f.borrowed_date||x.f.start_date)}</td><td>${fmt(x.f.collection_start_date||x.f.start_date)}</td><td>${fmt(x.p.due_date)}</td><td>${money(x.p.amount)}</td></tr>`).join("")}</tbody></table></div>`;
+}
+function refreshReportControls(){
+ const k=reportType.value;
+ reportDay.disabled=false; reportMonthDay.disabled=false;
+}
+function showReports(){
+ reportPanel.classList.remove("hidden"); list.classList.add("hidden");
+ reportDate.value=reportDate.value||today();
+ reportMonthDay.value=reportMonthDay.value||Number(reportDate.value.slice(8,10));
+ reportDay.value=String(localDayIndex(reportDate.value));
+ reportRows();
 }
 function reportRows(){
- const kind=reportType.value,dateStr=reportDate.value||today(),found=[];
- finances.forEach(f=>fp(f).forEach(p=>{if(dueForReport(f,p,kind,dateStr))found.push({f,p})}));
- found.sort((a,b)=>a.p.due_date.localeCompare(b.p.due_date)||a.f.person_name.localeCompare(b.f.person_name));
- const names=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
- const title=kind==="today"?`Due on ${fmt(dateStr)}`:kind==="weekly_day"?`Weekly customers — ${names[Number(reportDay.value)]}`:kind==="monthly_date"?`Monthly customers — ${reportMonthDay.value}th`:`Address report — ${reportAddress.value||"All addresses"}`;
- reportSummary.innerHTML=`<b>${title}</b> · ${found.length} payment${found.length===1?"":"s"} · Total ${money(found.reduce((a,x)=>a+Number(x.p.amount),0))}`;
- reportResult.innerHTML=found.length?`<table><thead><tr><th>Customer</th><th>Phone</th><th>Borrower Address</th><th>Surety</th><th>Money Borrowed</th><th>Collection Starts</th><th>Due Date</th><th>Amount</th><th>Type</th></tr></thead><tbody>${found.map(x=>`<tr><td>${esc(x.f.person_name)}</td><td>${esc(x.f.phone||"")}</td><td>${esc(x.f.borrower_address||"")}</td><td>${esc(x.f.surety_name||"")} ${esc(x.f.surety_phone||"")}</td><td>${fmt(x.p.due_date)}</td><td>${money(x.p.amount)}</td><td>${x.f.finance_type==="daily_interest"?"Daily Interest":x.f.finance_type==="interest_only"?"Interest Only":"Installment"}</td></tr>`).join("")}</tbody></table>`:'<div class="empty">No pending customers match this report.</div>';
+ const dateStr=reportDate.value||today();
+ const dayIndex=Number(reportDay.value);
+ const monthDay=Number(reportMonthDay.value||Number(dateStr.slice(8,10)));
+ const d=reportDueItems("daily",dateStr,dayIndex,monthDay);
+ const w=reportDueItems("weekly",dateStr,dayIndex,monthDay);
+ const m=reportDueItems("monthly",dateStr,dayIndex,monthDay);
+ const k=reportType.value;
+ dailyReport.innerHTML=(k==="all"||k==="daily")?reportTable(`Daily Finance — Due ${fmt(dateStr)}`,d):"";
+ weeklyReport.innerHTML=(k==="all"||k==="weekly")?reportTable(`Weekly Finance — ${["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"][dayIndex]}`,w):"";
+ monthlyReport.innerHTML=(k==="all"||k==="monthly")?reportTable(`Monthly Finance — ${monthDay}th`,m):"";
+ reportSummary.innerHTML=`<b>Report date: ${fmt(dateStr)}</b> · Daily: ${d.length} · Weekly: ${w.length} · Monthly: ${m.length} · Combined pending amount: ${money(d.concat(w,m).reduce((a,x)=>a+Number(x.p.amount),0))}`;
 }
-function refreshReportControls(){const k=reportType.value;reportDayWrap.style.display=k==="weekly_day"?"block":"none";reportMonthWrap.style.display=k==="monthly_date"?"block":"none";reportAddressWrap.style.display=k==="address"?"block":"none"}
-function showReports(){reportPanel.classList.remove("hidden");list.classList.add("hidden");reportDate.value=reportDate.value||today();refreshReportControls();reportRows()}
 async function startApp(){
  const {data:{session}}=await db.auth.getSession();
  if(session){user=session.user;authScreenWrap.style.display="none";appWrap.classList.remove("hidden");await load()}
@@ -343,7 +393,7 @@ authForm.onsubmit=async e=>{e.preventDefault();msg("authMsg","");const r=await d
 signupBtn.onclick=async()=>{const r=await db.auth.signUp({email:authEmail.value.trim(),password:authPassword.value});if(r.error){msg("authMsg",r.error.message);return}msg("authMsg",r.data.session?"Account created.":"Account created. Check your email, then log in.")};
 logoutBtn.onclick=async()=>{await db.auth.signOut();location.reload()};
 financeForm.addEventListener("submit",create);financeType.addEventListener("change",toggleFinanceType);frequency.addEventListener("change",toggleFinanceType);clearBtn.addEventListener("click",()=>{financeForm.reset();borrowedDate.value=today();collectionStart.value=today();toggleFinanceType();msg("formMessage","")});search.addEventListener("input",render);document.getElementById("allBtn").addEventListener("click",showAll);document.getElementById("exportBtn").addEventListener("click",exportData);overdueCard.addEventListener("click",overdueList);
-reportsBtn.onclick=showReports;closeReports.onclick=()=>{reportPanel.classList.add("hidden");list.classList.remove("hidden");render()};reportType.onchange=()=>{refreshReportControls();reportRows()};reportDate.onchange=reportRows;reportDay.onchange=reportRows;reportMonthDay.oninput=reportRows;reportAddress.oninput=reportRows;printReport.onclick=()=>window.print();borrowedDate.value=today();collectionStart.value=today();toggleFinanceType();startApp().catch(e=>msg("authMsg",e.message));
+reportsBtn.onclick=showReports;closeReports.onclick=()=>{reportPanel.classList.add("hidden");list.classList.remove("hidden");render()};reportType.onchange=reportRows;reportDate.onchange=reportRows;reportDay.onchange=reportRows;reportMonthDay.oninput=reportRows;printReport.onclick=()=>window.print();borrowedDate.value=today();collectionStart.value=today();toggleFinanceType();startApp().catch(e=>msg("authMsg",e.message));
 </script>
 </body>
 </html>
