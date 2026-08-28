@@ -207,23 +207,97 @@ async function delFinance(id){
  const {error}=await db.from("finances").delete().eq("id",id);if(error){alert(error.message);return}await load();
 }
 async function create(e){
- e.preventDefault();msg("formMessage","");
- const nameV=nameEl.value.trim(),phoneV=phoneEl.value.trim(),borrowerAddressV=document.getElementById("borrowerAddress").value.trim(),amountV=Number(amountEl.value),borrowedDateV=borrowedDate.value,collectionStartV=collectionStart.value,typeV=financeType.value,freqV=frequency.value;
- const paymentV=Number(paymentEl.value),countV=Number(countEl.value),rateV=Number(interestRateEl.value);
- if(!nameV||amountV<=0||!startV){msg("formMessage","Enter name, amount and start date.");return}
- if(typeV==="installment"&&(paymentV<=0||countV<=0)){msg("formMessage","Enter installment amount and number of payments.");return}
- if(typeV!=="installment"&&rateV<=0){msg("formMessage","Enter this person's interest rate.");return}
- if(typeV==="daily_interest"&&freqV!=="daily"){msg("formMessage","Daily Interest uses Daily frequency.");return}
- const n=typeV==="installment"?countV:(typeV==="daily_interest"?3650:(freqV==="weekly"?520:120));
- const per=typeV==="installment"?paymentV:amountV*rateV/100;
- const suretyNameV=document.getElementById("suretyName").value.trim();
- const suretyPhoneV=document.getElementById("suretyPhone").value.trim();
- const suretyAddressV=document.getElementById("suretyAddress").value.trim();
- const row={user_id:user.id,person_name:nameV,phone:phoneV,borrower_address:borrowerAddressV,surety_name:suretyNameV,surety_phone:suretyPhoneV,surety_address:suretyAddressV,amount:amountV,finance_type:typeV,frequency:freqV,interest_rate:typeV==="installment"?null:rateV,installment_amount:typeV==="installment"?paymentV:null,number_of_payments:typeV==="installment"?countV:null,borrowed_date:borrowedDateV,collection_start_date:collectionStartV,start_date:collectionStartV,principal_returned:false,principal_returned_date:null};
- const fr=await db.from("finances").insert(row).select().single();if(fr.error){msg("formMessage",fr.error.message);return}
- const dates=scheduleDates(startV,freqV,n), rows=dates.map(d=>({user_id:user.id,finance_id:fr.data.id,due_date:d,amount:per,payment_type:typeV==="installment"?"installment":"interest",paid:false}));
- for(let i=0;i<rows.length;i+=200){const r=await db.from("payments").insert(rows.slice(i,i+200));if(r.error){await db.from("finances").delete().eq("id",fr.data.id);msg("formMessage","Schedule failed: "+r.error.message);return}}
- e.target.reset();start.value=today();toggleFinanceType();msg("formMessage","Schedule created successfully.");await load();
+ e.preventDefault();
+ msg("formMessage","");
+ try{
+  const nameV=nameEl.value.trim();
+  const phoneV=phoneEl.value.trim();
+  const borrowerAddressV=document.getElementById("borrowerAddress").value.trim();
+  const suretyNameV=document.getElementById("suretyName")?.value.trim()||"";
+  const suretyPhoneV=document.getElementById("suretyPhone")?.value.trim()||"";
+  const suretyAddressV=document.getElementById("suretyAddress")?.value.trim()||"";
+  const amountV=Number(amountEl.value);
+  const borrowedDateV=borrowedDate.value;
+  const collectionStartV=collectionStart.value;
+  const typeV=financeType.value;
+  const freqV=frequency.value;
+  const paymentV=Number(paymentEl.value);
+  const countV=Number(countEl.value);
+  const rateV=Number(interestRateEl.value);
+
+  if(!nameV||amountV<=0||!borrowedDateV||!collectionStartV){
+    msg("formMessage","Please enter the customer name, amount, borrowed date and collection start date."); return;
+  }
+  if(collectionStartV<borrowedDateV){
+    msg("formMessage","Collection start date cannot be before the money borrowed date."); return;
+  }
+  if(typeV==="installment"&&(paymentV<=0||countV<=0)){
+    msg("formMessage","Please enter the payment amount and number of payments."); return;
+  }
+  if(typeV!=="installment"&&rateV<=0){
+    msg("formMessage","Please enter the interest rate for this customer."); return;
+  }
+  if(typeV==="daily_interest"&&freqV!=="daily"){
+    msg("formMessage","Daily Interest must use Daily frequency."); return;
+  }
+  if(typeV==="interest_only"&&freqV==="daily"){
+    msg("formMessage","For daily interest, choose Daily Interest."); return;
+  }
+
+  const n=typeV==="installment"?countV:(typeV==="daily_interest"?3650:(freqV==="weekly"?520:120));
+  const per=typeV==="installment"?paymentV:amountV*rateV/100;
+  const row={
+    user_id:user.id,
+    person_name:nameV,
+    phone:phoneV,
+    borrower_address:borrowerAddressV,
+    surety_name:suretyNameV,
+    surety_phone:suretyPhoneV,
+    surety_address:suretyAddressV,
+    amount:amountV,
+    finance_type:typeV,
+    frequency:freqV,
+    interest_rate:typeV==="installment"?null:rateV,
+    installment_amount:typeV==="installment"?paymentV:null,
+    number_of_payments:typeV==="installment"?countV:null,
+    borrowed_date:borrowedDateV,
+    collection_start_date:collectionStartV,
+    start_date:collectionStartV,
+    principal_returned:false,
+    principal_returned_date:null
+  };
+
+  const fr=await db.from("finances").insert(row).select().single();
+  if(fr.error){msg("formMessage","Could not create finance: "+fr.error.message);return}
+
+  const dates=scheduleDates(collectionStartV,freqV,n);
+  const rows=dates.map(d=>({
+    user_id:user.id,
+    finance_id:fr.data.id,
+    due_date:d,
+    amount:per,
+    payment_type:typeV==="installment"?"installment":"interest",
+    paid:false
+  }));
+
+  for(let i=0;i<rows.length;i+=200){
+    const r=await db.from("payments").insert(rows.slice(i,i+200));
+    if(r.error){
+      await db.from("finances").delete().eq("id",fr.data.id);
+      msg("formMessage","Schedule could not be created: "+r.error.message);
+      return;
+    }
+  }
+
+  financeForm.reset();
+  borrowedDate.value=today();
+  collectionStart.value=today();
+  toggleFinanceType();
+  msg("formMessage","Schedule created successfully.");
+  await load();
+ }catch(err){
+  msg("formMessage","Error: "+(err?.message||String(err)));
+ }
 }
 async function overdueList(){
  const t=today(),items=[];
