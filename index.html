@@ -40,7 +40,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 </div>
 <div id="appWrap" class="hidden"><div class="app">
 <header><div><h1>Finance Repayment Tracker</h1><div class="sub">Cloud synced across your devices.</div></div>
-<div class="actions"><button class="secondary" id="logoutBtn">Logout</button><button onclick="exportData()">Export CSV</button></div></header>
+<div class="actions"><button class="secondary" id="logoutBtn">Logout</button><button id="exportBtn">Export CSV</button></div></header>
 
 <section class="grid">
 <div class="card"><small>Total lent</small><div class="num" id="totalLent">₹0</div></div>
@@ -83,7 +83,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 
 <section class="panel">
 <h2>Finances</h2>
-<div class="toolbar"><input id="search" placeholder="Search person..." oninput="render()"><button class="secondary" onclick="showAll()">All</button></div>
+<div class="toolbar"><input id="search" placeholder="Search person..." ><button class="secondary" id="allBtn">All</button></div>
 <div id="list"></div>
 </section>
 </div>
@@ -94,6 +94,8 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 const SUPABASE_URL="https://gsaedqngknunvilwylko.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_YFUwnnCsYnA4pkH5Dl366w_uinP37SM";
 const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
+const authScreenWrap=document.getElementById("authScreenWrap"), appWrap=document.getElementById("appWrap"), authForm=document.getElementById("authForm"), authEmail=document.getElementById("authEmail"), authPassword=document.getElementById("authPassword"), authMsg=document.getElementById("authMsg"), signupBtn=document.getElementById("signupBtn"), logoutBtn=document.getElementById("logoutBtn");
+const financeForm=document.getElementById("financeForm"), financeType=document.getElementById("financeType"), frequency=document.getElementById("frequency"), clearBtn=document.getElementById("clearBtn"), start=document.getElementById("start"), search=document.getElementById("search"), overdueCard=document.getElementById("overdueCard"), totalLent=document.getElementById("totalLent"), totalReceived=document.getElementById("totalReceived"), outstanding=document.getElementById("outstanding"), overdue=document.getElementById("overdue"), list=document.getElementById("list"), name=document.getElementById("name"), phone=document.getElementById("phone"), amount=document.getElementById("amount"), payment=document.getElementById("payment"), count=document.getElementById("count"), interestRate=document.getElementById("interestRate");
 let user=null,finances=[],payments=[];
 
 const money=n=>"₹"+Number(n||0).toLocaleString("en-IN",{maximumFractionDigits:2});
@@ -149,7 +151,7 @@ function render(){
   return `<div class="card" style="margin-bottom:12px">
    <div style="display:flex;justify-content:space-between;gap:10px"><div><b>${esc(f.person_name)}</b><div class="sub">${esc(f.phone||"")} · ${interest?(f.finance_type==="daily_interest"?"Daily Interest":"Interest Only")+" · "+f.interest_rate+"%":"Installment"}</div></div><button class="secondary smallbtn" data-view="${f.id}">View</button></div>
    <div style="display:flex;gap:24px;margin-top:14px;flex-wrap:wrap"><div><small>Given</small><div class="total">${money(f.amount)}</div></div>
-   <div><small>${interest?"Interest paid":"Paid"}</small><div class="total">${interest?money(ps.filter(p=>p.paid).reduce((a,p)=>a+Number(p.amount),0):paid+"/"+ps.length}</div></div>
+   <div><small>${interest?"Interest paid":"Paid"}</small><div class="total">${interest?money(ps.filter(p=>p.paid).reduce((a,p)=>a+Number(p.amount),0)):paid+"/"+ps.length}</div></div>
    <div><small>${interest?"Interest/period":"Installment"}</small><div class="total">${money(interest?interestAmount(f):f.installment_amount)}</div></div></div>
    <div class="sub" style="margin-top:12px">${f.principal_returned?"Principal returned ✓":next?`Next: ${fmt(next.due_date)} · ${money(next.amount)}`:"Completed ✓"}</div>
   </div>`;
@@ -204,62 +206,23 @@ async function overdueList(){
  list.innerHTML=`<div class="card"><button class="secondary smallbtn" id="overBack">← Back</button><h3>Overdue / Pending List</h3>${items.length?`<div style="overflow:auto;margin-top:14px"><table><thead><tr><th>Person</th><th>Due date</th><th>Amount</th><th>Type</th><th></th></tr></thead><tbody>${items.map(x=>`<tr><td><b>${esc(x.f.person_name)}</b><div class="sub">${esc(x.f.phone||"")}</div></td><td>${fmt(x.p.due_date)}</td><td>${money(x.p.amount)}</td><td>${x.f.finance_type==="daily_interest"?"Daily Interest":x.f.finance_type==="interest_only"?"Interest Only":"Installment"}</td><td><button class="smallbtn" data-opaid="${x.p.id}">Mark paid</button></td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">No overdue payments.</div>'}</div>`;
  overBack.onclick=render;document.querySelectorAll("[data-opaid]").forEach(b=>b.onclick=async()=>{await paid(b.dataset.opaid);overdueList()});
 }
+
+function showAll(){search.value="";render()}
+function exportData(){
+ const rows=[['Person','Phone','Amount','Type','Frequency','Rate','Due Date','Payment Amount','Paid']];
+ finances.forEach(f=>fp(f).forEach(p=>rows.push([f.person_name,f.phone||'',f.amount,f.finance_type,f.frequency,f.interest_rate??'',p.due_date,p.amount,p.paid?'Yes':'No'])));
+ const csv=rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')).join('\n');
+ const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='finance-tracker.csv';a.click();URL.revokeObjectURL(a.href);
+}
 async function startApp(){
  const {data:{session}}=await db.auth.getSession();
  if(session){user=session.user;authScreenWrap.style.display="none";appWrap.classList.remove("hidden");await load()}
 }
 function userEmailText(){document.getElementById("userEmail")?.remove()}
-const authFormEl=document.getElementById("authForm");
-const authEmailEl=document.getElementById("authEmail");
-const authPasswordEl=document.getElementById("authPassword");
-const authMsgEl=document.getElementById("authMsg");
-const signupBtnEl=document.getElementById("signupBtn");
-const authScreenWrapEl=document.getElementById("authScreenWrap");
-const appWrapEl=document.getElementById("appWrap");
-const logoutBtnEl=document.getElementById("logoutBtn");
-
-authFormEl.addEventListener("submit",async e=>{
- e.preventDefault();
- msg("authMsg","");
- const email=authEmailEl.value.trim();
- const password=authPasswordEl.value;
- if(!email||password.length<6){msg("authMsg","Enter a valid email and a password of at least 6 characters.");return}
- const r=await db.auth.signInWithPassword({email,password});
- if(r.error){msg("authMsg",r.error.message);return}
- user=r.data.user;
- authScreenWrapEl.style.display="none";
- appWrapEl.classList.remove("hidden");
- try{await load()}catch(err){msg("authMsg","Login succeeded, but data could not load: "+err.message)}
-});
-
-signupBtnEl.addEventListener("click",async()=>{
- msg("authMsg","");
- const email=authEmailEl.value.trim();
- const password=authPasswordEl.value;
- if(!email||password.length<6){msg("authMsg","Enter a valid email and a password of at least 6 characters.");return}
- signupBtnEl.disabled=true;
- signupBtnEl.textContent="Creating...";
- try{
-   const r=await db.auth.signUp({
-     email,
-     password,
-     options:{emailRedirectTo:window.location.href}
-   });
-   if(r.error){msg("authMsg",r.error.message);return}
-   if(r.data.session){
-     user=r.data.user;
-     authScreenWrapEl.style.display="none";
-     appWrapEl.classList.remove("hidden");
-     await load();
-   }else{
-     msg("authMsg","Account created. If email confirmation is enabled, check your email and confirm it before logging in.");
-   }
- }catch(err){msg("authMsg","Could not create account: "+err.message)}
- finally{signupBtnEl.disabled=false;signupBtnEl.textContent="Create account"}
-});
-
-logoutBtnEl.addEventListener("click",async()=>{await db.auth.signOut();location.reload()});
-financeForm.onsubmit=create;financeType.onchange=toggleFinanceType;frequency.onchange=toggleFinanceType;clearBtn.onclick=()=>{financeForm.reset();start.value=today();toggleFinanceType();msg("formMessage","")};search.oninput=render;allBtn.onclick=()=>{search.value="";render()};overdueCard.onclick=overdueList;
+authForm.onsubmit=async e=>{e.preventDefault();msg("authMsg","");const r=await db.auth.signInWithPassword({email:authEmail.value.trim(),password:authPassword.value});if(r.error){msg("authMsg",r.error.message);return}user=r.data.user;authScreenWrap.style.display="none";appWrap.classList.remove("hidden");await load()};
+signupBtn.onclick=async()=>{const r=await db.auth.signUp({email:authEmail.value.trim(),password:authPassword.value});if(r.error){msg("authMsg",r.error.message);return}msg("authMsg",r.data.session?"Account created.":"Account created. Check your email, then log in.")};
+logoutBtn.onclick=async()=>{await db.auth.signOut();location.reload()};
+financeForm.addEventListener("submit",create);financeType.addEventListener("change",toggleFinanceType);frequency.addEventListener("change",toggleFinanceType);clearBtn.addEventListener("click",()=>{financeForm.reset();start.value=today();toggleFinanceType();msg("formMessage","")});search.addEventListener("input",render);document.getElementById("allBtn").addEventListener("click",showAll);document.getElementById("exportBtn").addEventListener("click",exportData);overdueCard.addEventListener("click",overdueList);
 start.value=today();toggleFinanceType();startApp().catch(e=>msg("authMsg",e.message));
 </script>
 </body>
