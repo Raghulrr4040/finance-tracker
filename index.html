@@ -23,7 +23,14 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 .smallbtn{padding:7px 10px;font-size:12px}.total{font-weight:800}.message{margin-top:10px;padding:10px;border-radius:9px;background:#eef6ff;color:#174a7a}
 @media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}.panels{grid-template-columns:1fr}}@media(max-width:520px){.app{padding:14px}.grid{grid-template-columns:1fr 1fr}.row{grid-template-columns:1fr}header{align-items:flex-start;gap:10px}}
 .hidden{display:none!important}
-@media print{.report-section{break-inside:avoid;margin-bottom:25px}body>*{display:none!important}#reportPanel{display:block!important;border:0!important;box-shadow:none!important;margin:0!important}#reportPanel .actions,#reportPanel .grid{display:none!important}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:7px;text-align:left}}</style>
+@media print{
+.report-section{break-inside:avoid;margin-bottom:25px}
+body>*{display:none!important}
+#reportPanel{display:block!important;border:0!important;box-shadow:none!important;margin:0!important}
+#reportPanel .actions,#reportPanel .grid{display:none!important}
+table{width:100%;border-collapse:collapse}
+th,td{border:1px solid #aaa;padding:7px;text-align:left}
+.report-section{break-inside:avoid;margin-bottom:25px}body>*{display:none!important}#reportPanel{display:block!important;border:0!important;box-shadow:none!important;margin:0!important}#reportPanel .actions,#reportPanel .grid{display:none!important}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:7px;text-align:left}}</style>
 </head>
 <body>
 <div id="authScreenWrap">
@@ -95,12 +102,12 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 <div id="reportPanel" class="card hidden" style="margin-bottom:14px">
 <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
 <div><h3 style="margin:0">Collection Reports</h3><div class="sub">Monthly, weekly and daily collections are shown separately. Select a date to see exactly who is due.</div></div>
-<div class="actions"><button class="secondary smallbtn" id="closeReports">Close</button><button class="smallbtn" id="printReport">Print selected report</button></div>
+<div class="actions"><button class="secondary smallbtn" id="closeReports">Close</button><button class="smallbtn" id="printReport">🖨 Print report</button></div>
 </div>
 <div class="grid" style="margin-top:12px">
 <div><label>Exact report date</label><input id="reportDate" type="date"></div>
 <div><label>View</label><select id="reportType">
-<option value="all">All three reports</option>
+<option value="all">All three reports</option><option value="activity">Daily Activity</option>
 <option value="daily">Daily finance</option>
 <option value="weekly">Weekly finance</option>
 <option value="monthly">Monthly finance</option>
@@ -111,7 +118,7 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 <div id="reportSummary" class="sub" style="margin-top:12px"></div>
 <div id="dailyReport" style="margin-top:14px"></div>
 <div id="weeklyReport" style="margin-top:14px"></div>
-<div id="monthlyReport" style="margin-top:14px"></div>
+<div id="monthlyReport" style="margin-top:14px"></div><div id="activityReport" style="margin-top:14px"></div>
 </div></div>
 <div class="grid" style="margin-top:12px">
 <div><label>Report date</label><input id="reportDate" type="date"></div>
@@ -371,6 +378,7 @@ function showReports(){
  reportDay.value=String(localDayIndex(reportDate.value));
  reportRows();
 }
+
 function reportRows(){
  const dateStr=reportDate.value||today();
  const dayIndex=Number(reportDay.value);
@@ -379,10 +387,55 @@ function reportRows(){
  const w=reportDueItems("weekly",dateStr,dayIndex,monthDay);
  const m=reportDueItems("monthly",dateStr,dayIndex,monthDay);
  const k=reportType.value;
+
  dailyReport.innerHTML=(k==="all"||k==="daily")?reportTable(`Daily Finance — Due ${fmt(dateStr)}`,d):"";
  weeklyReport.innerHTML=(k==="all"||k==="weekly")?reportTable(`Weekly Finance — ${["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"][dayIndex]}`,w):"";
  monthlyReport.innerHTML=(k==="all"||k==="monthly")?reportTable(`Monthly Finance — ${monthDay}th`,m):"";
- reportSummary.innerHTML=`<b>Report date: ${fmt(dateStr)}</b> · Daily: ${d.length} · Weekly: ${w.length} · Monthly: ${m.length} · Combined pending amount: ${money(d.concat(w,m).reduce((a,x)=>a+Number(x.p.amount),0))}`;
+ activityReport.innerHTML=(k==="all"||k==="activity")?dailyActivityReport(dateStr):"";
+
+ const allDue=d.concat(w,m);
+ reportSummary.innerHTML=`<b>Report date: ${fmt(dateStr)}</b> · Daily due: ${d.length} · Weekly due: ${w.length} · Monthly due: ${m.length} · Total due: ${money(allDue.reduce((a,x)=>a+Number(x.p.amount),0))}`;
+}
+
+function dailyActivityReport(dateStr){
+ // Money lent on this date comes from the finance's borrowed_date.
+ const loans=finances.filter(f=>!f.principal_returned && (f.borrowed_date||f.start_date)===dateStr);
+ const loanTotal=loans.reduce((a,f)=>a+Number(f.amount||0),0);
+
+ // Money received on this date comes from paid payment rows already loaded by the app.
+ // Accept either paid_date or updated_at as the payment date; fall back to due_date for
+ // older records that don't have a separate paid-date field.
+ const received=[];
+ finances.forEach(f=>{
+   fp(f).forEach(p=>{
+     if(p.paid){
+       const receivedDate=p.paid_date || (p.updated_at ? String(p.updated_at).slice(0,10) : p.due_date);
+       if(receivedDate===dateStr) received.push({f,p});
+     }
+   });
+ });
+ const receivedTotal=received.reduce((a,x)=>a+Number(x.p.amount||0),0);
+ const net=receivedTotal-loanTotal;
+
+ const loanRows=loans.length?loans.map((f,i)=>`
+ <tr><td>${i+1}</td><td>Loan given</td><td>${esc(f.person_name)}</td><td>${esc(f.phone||"")}</td><td>${esc(f.borrower_address||"")}</td><td>${money(f.amount)}</td></tr>`).join(""):`<tr><td colspan="6">No loans given on this date.</td></tr>`;
+
+ const receivedRows=received.length?received.map((x,i)=>`
+ <tr><td>${i+1}</td><td>Collection received</td><td>${esc(x.f.person_name)}</td><td>${esc(x.f.phone||"")}</td><td>${esc(x.f.borrower_address||"")}</td><td>${money(x.p.amount)}</td></tr>`).join(""):`<tr><td colspan="6">No collections received on this date.</td></tr>`;
+
+ return `<div class="report-section">
+ <h3>Daily Activity — ${fmt(dateStr)}</h3>
+ <div class="sub">Loans given: <b>${money(loanTotal)}</b> · Collections received: <b>${money(receivedTotal)}</b> · Net cash movement: <b>${net>=0?"+":"−"}${money(Math.abs(net))}</b></div>
+ <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin:12px 0">
+ <div class="card"><div class="sub">Money given</div><h3 style="margin:4px 0">${money(loanTotal)}</h3><div class="sub">${loans.length} loan${loans.length===1?"":"s"}</div></div>
+ <div class="card"><div class="sub">Money received</div><h3 style="margin:4px 0">${money(receivedTotal)}</h3><div class="sub">${received.length} collection${received.length===1?"":"s"}</div></div>
+ <div class="card"><div class="sub">Balance / Net</div><h3 style="margin:4px 0">${net>=0?"+":"−"}${money(Math.abs(net))}</h3><div class="sub">${net>=0?"More received than given":"More given than received"}</div></div>
+ </div>
+ <h4>Money Given</h4>
+ <table><thead><tr><th>#</th><th>Transaction</th><th>Customer</th><th>Phone</th><th>Address</th><th>Amount</th></tr></thead><tbody>${loanRows}</tbody></table>
+ <h4 style="margin-top:18px">Money Received</h4>
+ <table><thead><tr><th>#</th><th>Transaction</th><th>Customer</th><th>Phone</th><th>Address</th><th>Amount</th></tr></thead><tbody>${receivedRows}</tbody></table>
+ </div>`;
 }
 async function startApp(){
  const {data:{session}}=await db.auth.getSession();
