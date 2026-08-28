@@ -20,10 +20,10 @@ label{display:block;font-size:13px;font-weight:700;margin:12px 0 6px}input,selec
 table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;padding:12px 9px;border-bottom:1px solid #edf0f5}th{color:#687386;font-size:12px}
 .badge{padding:5px 8px;border-radius:20px;font-size:11px;font-weight:800}.paid{background:#e4f7eb;color:#18733d}.pending{background:#fff4d7;color:#8a6500}.overdue{background:#ffe5e5;color:#a12a2a}
 .toolbar{display:flex;gap:8px;margin-bottom:12px}.toolbar input{max-width:240px}.empty{text-align:center;color:#7a8494;padding:30px}
-.smallbtn{padding:7px 10px;font-size:12px}.total{font-weight:800}
+.smallbtn{padding:7px 10px;font-size:12px}.total{font-weight:800}.message{margin-top:10px;padding:10px;border-radius:9px;background:#eef6ff;color:#174a7a}
 @media(max-width:850px){.grid{grid-template-columns:repeat(2,1fr)}.panels{grid-template-columns:1fr}}@media(max-width:520px){.app{padding:14px}.grid{grid-template-columns:1fr 1fr}.row{grid-template-columns:1fr}header{align-items:flex-start;gap:10px}}
 .hidden{display:none!important}
-</style>
+@media print{body>*{display:none!important}#reportPanel{display:block!important;border:0!important;box-shadow:none!important;margin:0!important}#reportPanel .actions,#reportPanel .grid{display:none!important}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:7px;text-align:left}}</style>
 </head>
 <body>
 <div id="authScreenWrap">
@@ -64,10 +64,11 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 </fieldset>
 <div class="row">
 <div><label>Amount given (₹)</label><input id="amount" type="number" min="1" required placeholder="20000"></div>
-<div><label>Payment amount (₹)</label><input id="payment" type="number" min="1" required placeholder="4000"></div>
+<div id="paymentField"><label>Payment amount (₹)</label><input id="payment" type="number" min="1" required placeholder="4000"></div>
 </div>
 <div class="row">
-<div><label>Start date</label><input id="start" type="date" required></div>
+<div><label>Money borrowed date</label><input id="borrowedDate" type="date" required></div>
+<div><label>Collection starts from</label><input id="collectionStart" type="date" required></div>
 <div><label>Frequency</label><select id="frequency"><option value="monthly">Monthly</option><option value="weekly">Weekly</option><option value="daily">Daily</option></select></div>
 </div>
 <label>Finance type</label>
@@ -80,18 +81,29 @@ table{width:100%;border-collapse:collapse;font-size:14px}th,td{text-align:left;p
 <label>Number of payments</label><input id="count" type="number" min="1" required placeholder="5">
 </div>
 <div id="interestFields" style="display:none">
-<label>Interest rate for this person (%)</label><input id="interestRate" type="number" min="0" step="0.01" placeholder="5">
+<label id="interestRateLabel">Interest rate for this person (%)</label><input id="interestRate" type="number" min="0" step="0.01" placeholder="5">
 <p class="sub">This rate belongs only to this person. You can use 5% for one person, 6% for another, etc.</p>
 </div>
 <div class="actions"><button type="submit">Create Schedule</button><button type="button" class="secondary" id="clearBtn">Clear</button></div>
-<p id="hint" class="sub">First payment starts next week/month after the start date.</p>
+<p id="hint" class="sub">First payment starts next week/month after the start date.</p><div id="formMessage" class="message"></div><div id="dateHint" class="sub" style="margin-top:6px">Money borrowed date = when you gave the money. Collection starts from = the exact first collection date you choose.</div>
 </form>
 </section>
 
 <section class="panel">
 <h2>Finances</h2>
 <div class="toolbar"><input id="search" placeholder="Search person..." ><button class="secondary" id="allBtn">All</button></div>
-<div id="list"></div>
+<div id="reportPanel" class="card hidden" style="margin-bottom:14px">
+<div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+<div><h3 style="margin:0">Due Reports</h3><div class="sub">Separate customers by today's due date, weekly day, monthly date, or address.</div></div>
+<div class="actions"><button class="secondary smallbtn" id="closeReports">Close</button><button class="smallbtn" id="printReport">Print report</button></div></div>
+<div class="grid" style="margin-top:12px">
+<div><label>Report date</label><input id="reportDate" type="date"></div>
+<div><label>Report type</label><select id="reportType"><option value="today">Today's Due</option><option value="weekly_day">Weekly Day</option><option value="monthly_date">Monthly Date</option><option value="address">Address</option></select></div>
+<div id="reportDayWrap"><label>Weekly day</label><select id="reportDay"><option value="0">Monday</option><option value="1">Tuesday</option><option value="2">Wednesday</option><option value="3">Thursday</option><option value="4">Friday</option><option value="5">Saturday</option><option value="6">Sunday</option></select></div>
+<div id="reportMonthWrap"><label>Monthly date</label><input id="reportMonthDay" type="number" min="1" max="31" placeholder="5"></div>
+<div id="reportAddressWrap"><label>Address contains</label><input id="reportAddress" placeholder="Area / street / address"></div>
+</div>
+<div id="reportSummary" class="sub" style="margin-top:12px"></div><div id="reportResult" style="overflow:auto;margin-top:10px"></div></div><div id="list"></div>
 </section>
 </div>
 </div>
@@ -102,7 +114,8 @@ const SUPABASE_URL="https://gsaedqngknunvilwylko.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY="sb_publishable_YFUwnnCsYnA4pkH5Dl366w_uinP37SM";
 const db=window.supabase.createClient(SUPABASE_URL,SUPABASE_PUBLISHABLE_KEY);
 const authScreenWrap=document.getElementById("authScreenWrap"), appWrap=document.getElementById("appWrap"), authForm=document.getElementById("authForm"), authEmail=document.getElementById("authEmail"), authPassword=document.getElementById("authPassword"), authMsg=document.getElementById("authMsg"), signupBtn=document.getElementById("signupBtn"), logoutBtn=document.getElementById("logoutBtn");
-const financeForm=document.getElementById("financeForm"), financeType=document.getElementById("financeType"), frequency=document.getElementById("frequency"), clearBtn=document.getElementById("clearBtn"), start=document.getElementById("start"), search=document.getElementById("search"), overdueCard=document.getElementById("overdueCard"), totalLent=document.getElementById("totalLent"), totalReceived=document.getElementById("totalReceived"), outstanding=document.getElementById("outstanding"), overdue=document.getElementById("overdue"), list=document.getElementById("list"), name=document.getElementById("name"), phone=document.getElementById("phone"), amount=document.getElementById("amount"), payment=document.getElementById("payment"), count=document.getElementById("count"), interestRate=document.getElementById("interestRate");
+const borrowedDate=document.getElementById("borrowedDate"), collectionStart=document.getElementById("collectionStart");
+const financeForm=document.getElementById("financeForm"), financeType=document.getElementById("financeType"), frequency=document.getElementById("frequency"), clearBtn=document.getElementById("clearBtn"), start=document.getElementById("start"), search=document.getElementById("search"), overdueCard=document.getElementById("overdueCard"), totalLent=document.getElementById("totalLent"), totalReceived=document.getElementById("totalReceived"), outstanding=document.getElementById("outstanding"), overdue=document.getElementById("overdue"), list=document.getElementById("list"), nameEl=document.getElementById("name"), phoneEl=document.getElementById("phone"), amountEl=document.getElementById("amount"), paymentEl=document.getElementById("payment"), countEl=document.getElementById("count"), interestRateEl=document.getElementById("interestRate");
 let user=null,finances=[],payments=[];
 
 const money=n=>"₹"+Number(n||0).toLocaleString("en-IN",{maximumFractionDigits:2});
@@ -121,8 +134,8 @@ function toggleFinanceType(){
  document.getElementById("installmentFields").style.display=inst?"block":"none";
  document.getElementById("paymentField").style.display=inst?"block":"none";
  document.getElementById("interestFields").style.display=inst?"none":"block";
- document.getElementById("count").required=inst;
- document.getElementById("payment").required=inst;
+ countEl.required=inst;
+ paymentEl.required=inst;
  if(daily) document.getElementById("frequency").value="daily";
  else if(document.getElementById("frequency").value==="daily") document.getElementById("frequency").value="monthly";
  document.getElementById("interestRateLabel").textContent=daily?"Daily interest rate (%)":"Interest rate (%)";
@@ -156,7 +169,7 @@ function render(){
   const ps=fp(f),next=ps.find(p=>!p.paid),paid=ps.filter(p=>p.paid).length;
   const interest=f.finance_type!=="installment";
   return `<div class="card" style="margin-bottom:12px">
-   <div style="display:flex;justify-content:space-between;gap:10px"><div><b>${esc(f.person_name)}</b><div class="sub">${esc(f.phone||"")}${f.borrower_address?" · "+esc(f.borrower_address):""} · ${interest?(f.finance_type==="daily_interest"?"Daily Interest":"Interest Only")+" · "+f.interest_rate+"%":"Installment"}</div>${f.surety_name?`<div class="sub">Surety: <b>${esc(f.surety_name)}</b> · ${esc(f.surety_phone||"")}</div>`:""}</div><button class="secondary smallbtn" data-view="${f.id}">View</button></div>
+   <div style="display:flex;justify-content:space-between;gap:10px"><div><b>${esc(f.person_name)}</b><div class="sub">${esc(f.phone||"")}${f.borrower_address?" · "+esc(f.borrower_address):""} · Collection: ${fmt(f.collection_start_date||f.start_date)} · ${interest?(f.finance_type==="daily_interest"?"Daily Interest":"Interest Only")+" · "+f.interest_rate+"%":"Installment"}</div>${f.surety_name?`<div class="sub">Surety: <b>${esc(f.surety_name)}</b> · ${esc(f.surety_phone||"")}</div>`:""}</div><button class="secondary smallbtn" data-view="${f.id}">View</button></div>
    <div style="display:flex;gap:24px;margin-top:14px;flex-wrap:wrap"><div><small>Given</small><div class="total">${money(f.amount)}</div></div>
    <div><small>${interest?"Interest paid":"Paid"}</small><div class="total">${interest?money(ps.filter(p=>p.paid).reduce((a,p)=>a+Number(p.amount),0)):paid+"/"+ps.length}</div></div>
    <div><small>${interest?"Interest/period":"Installment"}</small><div class="total">${money(interest?interestAmount(f):f.installment_amount)}</div></div></div>
@@ -170,7 +183,7 @@ function view(id){
  const ps=fp(f),t=today(),type=f.finance_type==="installment"?"Installment":f.finance_type==="daily_interest"?"Daily Interest":"Interest Only";
  const rows=ps.map((p,i)=>`<tr><td>${i+1}</td><td>${fmt(p.due_date)}</td><td>${money(p.amount)}</td><td><span class="badge ${p.paid?"paid":(!f.principal_returned&&p.due_date<t?"overdue":"pending")}">${p.paid?"PAID":(!f.principal_returned&&p.due_date<t?"OVERDUE":"PENDING")}</span></td><td>${p.paid||f.principal_returned?"":`<button class="smallbtn" data-paid="${p.id}">Mark paid</button>`}</td></tr>`).join("");
  list.innerHTML=`<div class="card"><button class="secondary smallbtn" id="backBtn">← Back</button><h3>${esc(f.person_name)}</h3>
- <div class="sub">${esc(f.phone||"")} · ${type} · Started ${fmt(f.start_date)}</div>
+ <div class="sub">${esc(f.phone||"")} · ${type}</div><div class="sub"><b>Money borrowed:</b> ${fmt(f.borrowed_date||f.start_date)} · <b>Collection starts:</b> ${fmt(f.collection_start_date||f.start_date)}</div>
  ${f.borrower_address?`<div class="sub"><b>Borrower address:</b> ${esc(f.borrower_address)}</div>`:""}
  ${f.surety_name?`<div class="card" style="margin-top:12px;background:#fafbfe"><b>Surety / Guarantor</b><div style="margin-top:7px"><b>${esc(f.surety_name)}</b></div><div class="sub">${esc(f.surety_phone||"")}</div><div class="sub">${esc(f.surety_address||"")}</div></div>`:""}
  <div class="sub" style="margin-top:8px">${f.finance_type==="installment"?`Amount: <b>${money(f.amount)}</b> · Installment: <b>${money(f.installment_amount)}</b>`:`Principal: <b>${money(f.amount)}</b> · Rate: <b>${f.interest_rate}% per ${f.finance_type==="daily_interest"?"day":f.frequency}</b> · Interest: <b>${money(interestAmount(f))}</b>`}</div>
@@ -195,8 +208,8 @@ async function delFinance(id){
 }
 async function create(e){
  e.preventDefault();msg("formMessage","");
- const nameV=name.value.trim(),phoneV=phone.value.trim(),amountV=Number(amount.value),startV=start.value,typeV=financeType.value,freqV=frequency.value;
- const paymentV=Number(payment.value),countV=Number(count.value),rateV=Number(interestRate.value);
+ const nameV=nameEl.value.trim(),phoneV=phoneEl.value.trim(),borrowerAddressV=document.getElementById("borrowerAddress").value.trim(),amountV=Number(amountEl.value),borrowedDateV=borrowedDate.value,collectionStartV=collectionStart.value,typeV=financeType.value,freqV=frequency.value;
+ const paymentV=Number(paymentEl.value),countV=Number(countEl.value),rateV=Number(interestRateEl.value);
  if(!nameV||amountV<=0||!startV){msg("formMessage","Enter name, amount and start date.");return}
  if(typeV==="installment"&&(paymentV<=0||countV<=0)){msg("formMessage","Enter installment amount and number of payments.");return}
  if(typeV!=="installment"&&rateV<=0){msg("formMessage","Enter this person's interest rate.");return}
@@ -206,7 +219,7 @@ async function create(e){
  const suretyNameV=document.getElementById("suretyName").value.trim();
  const suretyPhoneV=document.getElementById("suretyPhone").value.trim();
  const suretyAddressV=document.getElementById("suretyAddress").value.trim();
- const row={user_id:user.id,person_name:nameV,phone:phoneV,borrower_address:borrowerAddressV,surety_name:suretyNameV,surety_phone:suretyPhoneV,surety_address:suretyAddressV,amount:amountV,finance_type:typeV,frequency:freqV,interest_rate:typeV==="installment"?null:rateV,installment_amount:typeV==="installment"?paymentV:null,number_of_payments:typeV==="installment"?countV:null,start_date:startV,principal_returned:false,principal_returned_date:null};
+ const row={user_id:user.id,person_name:nameV,phone:phoneV,borrower_address:borrowerAddressV,surety_name:suretyNameV,surety_phone:suretyPhoneV,surety_address:suretyAddressV,amount:amountV,finance_type:typeV,frequency:freqV,interest_rate:typeV==="installment"?null:rateV,installment_amount:typeV==="installment"?paymentV:null,number_of_payments:typeV==="installment"?countV:null,borrowed_date:borrowedDateV,collection_start_date:collectionStartV,start_date:collectionStartV,principal_returned:false,principal_returned_date:null};
  const fr=await db.from("finances").insert(row).select().single();if(fr.error){msg("formMessage",fr.error.message);return}
  const dates=scheduleDates(startV,freqV,n), rows=dates.map(d=>({user_id:user.id,finance_id:fr.data.id,due_date:d,amount:per,payment_type:typeV==="installment"?"installment":"interest",paid:false}));
  for(let i=0;i<rows.length;i+=200){const r=await db.from("payments").insert(rows.slice(i,i+200));if(r.error){await db.from("finances").delete().eq("id",fr.data.id);msg("formMessage","Schedule failed: "+r.error.message);return}}
@@ -215,7 +228,7 @@ async function create(e){
 async function overdueList(){
  const t=today(),items=[];
  finances.forEach(f=>fp(f).forEach(p=>{if(!p.paid&&p.due_date<t&&!f.principal_returned)items.push({f,p})}));
- list.innerHTML=`<div class="card"><button class="secondary smallbtn" id="overBack">← Back</button><h3>Overdue / Pending List</h3>${items.length?`<div style="overflow:auto;margin-top:14px"><table><thead><tr><th>Person</th><th>Due date</th><th>Amount</th><th>Type</th><th></th></tr></thead><tbody>${items.map(x=>`<tr><td><b>${esc(x.f.person_name)}</b><div class="sub">${esc(x.f.phone||"")}</div></td><td>${fmt(x.p.due_date)}</td><td>${money(x.p.amount)}</td><td>${x.f.finance_type==="daily_interest"?"Daily Interest":x.f.finance_type==="interest_only"?"Interest Only":"Installment"}</td><td><button class="smallbtn" data-opaid="${x.p.id}">Mark paid</button></td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">No overdue payments.</div>'}</div>`;
+ list.innerHTML=`<div class="card"><button class="secondary smallbtn" id="overBack">← Back</button><h3>Overdue / Pending List</h3>${items.length?`<div style="overflow:auto;margin-top:14px"><table><thead><tr><th>Person</th><th>Due date</th><th>Amount</th><th>Type</th><th></th></tr></thead><tbody>${items.map(x=>`<tr><td><b>${esc(x.f.person_name)}</b><div class="sub">${esc(x.f.phone||"")}</div></td><td>${fmt(x.f.borrowed_date||x.f.start_date)}</td><td>${fmt(x.f.collection_start_date||x.f.start_date)}</td><td>${fmt(x.p.due_date)}</td><td>${money(x.p.amount)}</td><td>${x.f.finance_type==="daily_interest"?"Daily Interest":x.f.finance_type==="interest_only"?"Interest Only":"Installment"}</td><td><button class="smallbtn" data-opaid="${x.p.id}">Mark paid</button></td></tr>`).join("")}</tbody></table></div>`:'<div class="empty">No overdue payments.</div>'}</div>`;
  overBack.onclick=render;document.querySelectorAll("[data-opaid]").forEach(b=>b.onclick=async()=>{await paid(b.dataset.opaid);overdueList()});
 }
 
@@ -226,6 +239,27 @@ function exportData(){
  const csv=rows.map(r=>r.map(v=>'"'+String(v).replaceAll('"','""')+'"').join(',')).join('\n');
  const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download='finance-tracker.csv';a.click();URL.revokeObjectURL(a.href);
 }
+
+function localDayIndex(dateStr){const d=new Date(dateStr+"T00:00:00");return (d.getDay()+6)%7}
+function dueForReport(f,p,kind,dateStr){
+ if(p.paid||f.principal_returned)return false;
+ if(kind==="today")return p.due_date===dateStr;
+ if(kind==="weekly_day")return f.frequency==="weekly"&&localDayIndex(p.due_date)===Number(reportDay.value);
+ if(kind==="monthly_date")return f.frequency==="monthly"&&Number(p.due_date.slice(8,10))===Number(reportMonthDay.value);
+ if(kind==="address")return (f.borrower_address||"").toLowerCase().includes((reportAddress.value||"").toLowerCase());
+ return false;
+}
+function reportRows(){
+ const kind=reportType.value,dateStr=reportDate.value||today(),found=[];
+ finances.forEach(f=>fp(f).forEach(p=>{if(dueForReport(f,p,kind,dateStr))found.push({f,p})}));
+ found.sort((a,b)=>a.p.due_date.localeCompare(b.p.due_date)||a.f.person_name.localeCompare(b.f.person_name));
+ const names=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
+ const title=kind==="today"?`Due on ${fmt(dateStr)}`:kind==="weekly_day"?`Weekly customers — ${names[Number(reportDay.value)]}`:kind==="monthly_date"?`Monthly customers — ${reportMonthDay.value}th`:`Address report — ${reportAddress.value||"All addresses"}`;
+ reportSummary.innerHTML=`<b>${title}</b> · ${found.length} payment${found.length===1?"":"s"} · Total ${money(found.reduce((a,x)=>a+Number(x.p.amount),0))}`;
+ reportResult.innerHTML=found.length?`<table><thead><tr><th>Customer</th><th>Phone</th><th>Borrower Address</th><th>Surety</th><th>Money Borrowed</th><th>Collection Starts</th><th>Due Date</th><th>Amount</th><th>Type</th></tr></thead><tbody>${found.map(x=>`<tr><td>${esc(x.f.person_name)}</td><td>${esc(x.f.phone||"")}</td><td>${esc(x.f.borrower_address||"")}</td><td>${esc(x.f.surety_name||"")} ${esc(x.f.surety_phone||"")}</td><td>${fmt(x.p.due_date)}</td><td>${money(x.p.amount)}</td><td>${x.f.finance_type==="daily_interest"?"Daily Interest":x.f.finance_type==="interest_only"?"Interest Only":"Installment"}</td></tr>`).join("")}</tbody></table>`:'<div class="empty">No pending customers match this report.</div>';
+}
+function refreshReportControls(){const k=reportType.value;reportDayWrap.style.display=k==="weekly_day"?"block":"none";reportMonthWrap.style.display=k==="monthly_date"?"block":"none";reportAddressWrap.style.display=k==="address"?"block":"none"}
+function showReports(){reportPanel.classList.remove("hidden");list.classList.add("hidden");reportDate.value=reportDate.value||today();refreshReportControls();reportRows()}
 async function startApp(){
  const {data:{session}}=await db.auth.getSession();
  if(session){user=session.user;authScreenWrap.style.display="none";appWrap.classList.remove("hidden");await load()}
@@ -234,8 +268,8 @@ function userEmailText(){document.getElementById("userEmail")?.remove()}
 authForm.onsubmit=async e=>{e.preventDefault();msg("authMsg","");const r=await db.auth.signInWithPassword({email:authEmail.value.trim(),password:authPassword.value});if(r.error){msg("authMsg",r.error.message);return}user=r.data.user;authScreenWrap.style.display="none";appWrap.classList.remove("hidden");await load()};
 signupBtn.onclick=async()=>{const r=await db.auth.signUp({email:authEmail.value.trim(),password:authPassword.value});if(r.error){msg("authMsg",r.error.message);return}msg("authMsg",r.data.session?"Account created.":"Account created. Check your email, then log in.")};
 logoutBtn.onclick=async()=>{await db.auth.signOut();location.reload()};
-financeForm.addEventListener("submit",create);financeType.addEventListener("change",toggleFinanceType);frequency.addEventListener("change",toggleFinanceType);clearBtn.addEventListener("click",()=>{financeForm.reset();start.value=today();toggleFinanceType();msg("formMessage","")});search.addEventListener("input",render);document.getElementById("allBtn").addEventListener("click",showAll);document.getElementById("exportBtn").addEventListener("click",exportData);overdueCard.addEventListener("click",overdueList);
-start.value=today();toggleFinanceType();startApp().catch(e=>msg("authMsg",e.message));
+financeForm.addEventListener("submit",create);financeType.addEventListener("change",toggleFinanceType);frequency.addEventListener("change",toggleFinanceType);clearBtn.addEventListener("click",()=>{financeForm.reset();borrowedDate.value=today();collectionStart.value=today();toggleFinanceType();msg("formMessage","")});search.addEventListener("input",render);document.getElementById("allBtn").addEventListener("click",showAll);document.getElementById("exportBtn").addEventListener("click",exportData);overdueCard.addEventListener("click",overdueList);
+reportsBtn.onclick=showReports;closeReports.onclick=()=>{reportPanel.classList.add("hidden");list.classList.remove("hidden");render()};reportType.onchange=()=>{refreshReportControls();reportRows()};reportDate.onchange=reportRows;reportDay.onchange=reportRows;reportMonthDay.oninput=reportRows;reportAddress.oninput=reportRows;printReport.onclick=()=>window.print();borrowedDate.value=today();collectionStart.value=today();toggleFinanceType();startApp().catch(e=>msg("authMsg",e.message));
 </script>
 </body>
 </html>
